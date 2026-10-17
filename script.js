@@ -1,124 +1,827 @@
-const winnerDisplay = document.getElementById('winnerDisplay');
-const drawButton = document.getElementById('drawButton');
-const resetButton = document.getElementById('resetButton');
-const statusText = document.getElementById('statusText');
-const startInput = document.getElementById('startNumber');
-const endInput = document.getElementById('endNumber');
-const confettiLayer = document.getElementById('confettiLayer');
+/* Dashain Night raffle.
+   One fair (crypto) winner from the ticket range, revealed by a spin that speeds up fast, runs flat out, then slows
+   down to land on the winner - timed to the Panche Baja cues in audio-data.js on the Web Audio clock. */
+(() => {
+  'use strict';
 
-let rollingInterval = null;
-
-function getRange() {
-  const start = Number(startInput.value);
-  const end = Number(endInput.value);
-
-  if (!Number.isFinite(start) || !Number.isFinite(end)) {
-    statusText.textContent = 'Please enter valid numbers.';
-    statusText.style.color = '#f7d781';
-    return null;
-  }
-
-  if (start === end) {
-    statusText.textContent = 'Start and end numbers cannot be the same.';
-    statusText.style.color = '#f7d781';
-    return null;
-  }
-
-  return {
-    start: Math.min(start, end),
-    end: Math.max(start, end),
+  const $ = (id) => document.getElementById(id);
+  const ui = {
+    medallion: $('medallion'),
+    mala: $('mala'),
+    label: $('faceLabel'),
+    number: $('winnerDisplay'),
+    nepali: $('winnerNepali'),
+    countdown: $('countdown'),
+    countdownValue: $('countdownValue'),
+    draw: $('drawButton'),
+    reset: $('resetButton'),
+    status: $('statusText'),
+    winners: $('winnersList'),
+    start: $('startNumber'),
+    end: $('endNumber'),
+    spin: $('spinTime'),
+    noRepeat: $('noRepeat'),
+    settings: $('settings'),
+    hide: $('hideSettings'),
+    settingsBtn: $('settingsButton'),
+    soundBtn: $('soundButton'),
+    fullscreenBtn: $('fullscreenButton'),
+    confetti: $('confettiLayer'),
   };
-}
 
-function getRandomNumber(start, end) {
-  return Math.floor(Math.random() * (end - start + 1)) + start;
-}
+  const STORE = 'dashain-raffle-v2';
+  const NEPALI_DIGITS = '०१२३४५६७८९';
+  const BEAT = 60 / 144;                              // the score's tempo
+  const RAMP = 2 * BEAT;                              // the speed-up = the GO roll; the groove kicks in here
+  const SLOW = { 6: 3.2, 10: 4.5, 15: 5.5, 20: 6.5 }; // seconds of slowing down, per spin time
+  const FAST = 0.035;                                 // flat out: a new number every 35 ms
+  const BLOOMS = 36;                                  // marigolds round the plate
+  const SVGNS = 'http://www.w3.org/2000/svg';
 
-function stopRolling() {
-  if (rollingInterval) {
-    clearInterval(rollingInterval);
-    rollingInterval = null;
-  }
-}
+  const state = { winners: [], hidden: false, muted: false, spinning: false };
+  let run = null;
 
-function launchConfetti() {
-  const colors = ['#f7d781', '#ef5a45', '#fff4df', '#f1b54e'];
-  const prefersReducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-  const pieceCount = prefersReducedMotion ? 36 : 112;
+  const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+  const toNepali = (s) => String(s).replace(/[0-9]/g, (d) => NEPALI_DIGITS[d]);
 
-  for (let i = 0; i < pieceCount; i += 1) {
-    const piece = document.createElement('span');
-    piece.className = 'confetti-piece';
-    const fromLeft = i % 2 === 0;
-    const burstX = (fromLeft ? 1 : -1) * (100 + Math.random() * 330);
-    const burstY = -(window.innerHeight * (0.3 + Math.random() * 0.38));
-    const driftX = burstX + (fromLeft ? 1 : -1) * (Math.random() * 230);
-    const fallY = window.innerHeight * (0.55 + Math.random() * 0.45);
-    const spin = (Math.random() > 0.5 ? 1 : -1) * (360 + Math.random() * 720);
-
-    piece.style.left = fromLeft ? '8%' : '92%';
-    piece.style.top = `${window.innerHeight * (0.67 + Math.random() * 0.16)}px`;
-    piece.style.background = colors[Math.floor(Math.random() * colors.length)];
-    piece.style.setProperty('--burst-x', `${burstX}px`);
-    piece.style.setProperty('--burst-y', `${burstY}px`);
-    piece.style.setProperty('--drift-x', `${driftX}px`);
-    piece.style.setProperty('--fall-y', `${fallY}px`);
-    piece.style.setProperty('--spin-early', `${spin * 0.2}deg`);
-    piece.style.setProperty('--spin-middle', `${spin * 0.55}deg`);
-    piece.style.setProperty('--spin-late', `${spin * 0.8}deg`);
-    piece.style.setProperty('--spin', `${spin}deg`);
-    piece.style.setProperty('--duration', `${prefersReducedMotion ? 2.2 : 3.6 + Math.random() * 1.8}s`);
-    piece.style.setProperty('--delay', `${Math.random() * 0.45}s`);
-    piece.style.setProperty('--piece-width', `${6 + Math.random() * 6}px`);
-    piece.style.setProperty('--piece-height', `${10 + Math.random() * 10}px`);
-    if (Math.random() > 0.72) {
-      piece.classList.add('confetti-ribbon');
+  // ---------------------------------------------------------------- settings that survive a reload
+  function save() {
+    try {
+      localStorage.setItem(STORE, JSON.stringify({
+        start: ui.start.value,
+        end: ui.end.value,
+        spin: ui.spin.value,
+        noRepeat: ui.noRepeat.checked,
+        hidden: state.hidden,
+        muted: state.muted,
+        winners: state.winners,
+      }));
+    } catch (e) {
+      // private window or blocked storage: everything still works, it just won't persist
     }
-    confettiLayer.appendChild(piece);
-
-    setTimeout(() => {
-      piece.remove();
-    }, 6500);
-  }
-}
-
-function animateDraw() {
-  const range = getRange();
-
-  if (!range) {
-    return;
   }
 
-  stopRolling();
-  let counter = 0;
-
-  rollingInterval = setInterval(() => {
-    const currentValue = getRandomNumber(range.start, range.end);
-    winnerDisplay.textContent = currentValue;
-    counter += 1;
-
-    if (counter >= 20) {
-      const finalNumber = getRandomNumber(range.start, range.end);
-      winnerDisplay.textContent = finalNumber;
-      statusText.textContent = `Winner: ${finalNumber}! Congratulations!`;
-      statusText.style.color = '#f7d781';
-      launchConfetti();
-      stopRolling();
-      drawButton.disabled = true;
-      drawButton.style.opacity = '0.7';
+  function restore() {
+    let saved = {};
+    try {
+      saved = JSON.parse(localStorage.getItem(STORE)) || {};
+    } catch (e) {
+      saved = {};
     }
-  }, 80);
-}
+    if (saved.start != null) ui.start.value = saved.start;
+    if (saved.end != null) ui.end.value = saved.end;
+    if (SLOW[saved.spin]) ui.spin.value = String(saved.spin);
+    if (typeof saved.noRepeat === 'boolean') ui.noRepeat.checked = saved.noRepeat;
+    if (Array.isArray(saved.winners)) state.winners = saved.winners.filter((n) => Number.isInteger(n));
+    state.muted = saved.muted === true;
+    setHidden(saved.hidden === true, false);
+  }
 
-function resetDraw() {
-  stopRolling();
-  winnerDisplay.textContent = '--';
-  statusText.textContent = 'Press the button to reveal tonight’s lucky number.';
-  statusText.style.color = 'rgba(255, 244, 223, 0.82)';
-  drawButton.disabled = false;
-  drawButton.style.opacity = '1';
-  confettiLayer.innerHTML = '';
-}
+  function setHidden(hidden, persist = true) {
+    state.hidden = hidden;
+    ui.settings.classList.toggle('collapsed', hidden);
+    ui.settings.inert = hidden;
+    ui.settings.setAttribute('aria-hidden', String(hidden));
+    ui.settingsBtn.setAttribute('aria-expanded', String(!hidden));
+    ui.settingsBtn.title = hidden ? 'Show settings (S)' : 'Hide settings (S)';
+    if (persist) save();
+  }
 
-drawButton.addEventListener('click', animateDraw);
-resetButton.addEventListener('click', resetDraw);
+  // ---------------------------------------------------------------- range and fair picking
+  function readRange() {
+    const a = ui.start.value.trim();
+    const b = ui.end.value.trim();
+    const lo = Math.min(Number(a), Number(b));
+    const hi = Math.max(Number(a), Number(b));
+    if (a === '' || b === '' || !Number.isSafeInteger(lo) || !Number.isSafeInteger(hi)) {
+      return { error: 'Enter whole numbers for the first and last ticket.' };
+    }
+    if (hi === lo) return { error: 'The first and last ticket can’t be the same number.' };
+    if (hi - lo >= 4e9) return { error: 'That ticket range is too big.' };
+    return { lo, hi, size: hi - lo + 1 };
+  }
+
+  function randInt(lo, hi) {
+    const span = hi - lo + 1;
+    if (window.crypto && window.crypto.getRandomValues) {
+      const buf = new Uint32Array(1);
+      const limit = Math.floor(0x100000000 / span) * span; // rejection sampling: no modulo bias
+      let x;
+      do {
+        window.crypto.getRandomValues(buf);
+        x = buf[0];
+      } while (x >= limit);
+      return lo + (x % span);
+    }
+    return lo + Math.floor(Math.random() * span);
+  }
+
+  function drawnIn(r) {
+    return ui.noRepeat.checked ? state.winners.filter((n) => n >= r.lo && n <= r.hi) : [];
+  }
+
+  function pickWinner(r) {
+    const taken = new Set(drawnIn(r));
+    if (taken.size >= r.size) return null;
+    if (taken.size * 2 > r.size) {
+      const pool = [];
+      for (let n = r.lo; n <= r.hi; n += 1) if (!taken.has(n)) pool.push(n);
+      return pool[randInt(0, pool.length - 1)];
+    }
+    let n;
+    do {
+      n = randInt(r.lo, r.hi);
+    } while (taken.has(n));
+    return n;
+  }
+
+  // ---------------------------------------------------------------- the spin: when each number appears
+  // Speed-up (0.2 s -> 35 ms between numbers) during the GO roll, flat out until the slow-down starts on a beat of the
+  // groove, then geometrically longer gaps (35 ms -> ~1 s) that add up to land exactly on the winner at T.
+  function makePlan(seconds) {
+    const slow = SLOW[seconds] || SLOW[10];
+    const k = Math.max(2, Math.round((seconds - slow - RAMP) / BEAT));
+    const tS = RAMP + k * BEAT;
+    const T = tS + slow;
+    const ticks = [];
+    let t = 0;
+    let gap = 0.2;
+    while (t < RAMP - 1e-6) {
+      ticks.push(t);
+      t += gap;
+      gap = Math.max(FAST, gap * 0.72);
+    }
+    const rampEnd = ticks.length;
+    while (t < tS - 1e-6) {
+      ticks.push(t);
+      t += FAST;
+    }
+    const slowFrom = ticks.length;
+    const D = T - t;
+    const last = Math.min(1.15, 0.2 * D);
+    const g = (D - FAST) / (D - last);
+    const n = Math.max(3, Math.round(Math.log(last / FAST) / Math.log(g)) + 1);
+    const gaps = Array.from({ length: n }, (_, j) => FAST * g ** j);
+    const scale = D / gaps.reduce((s, v) => s + v, 0);
+    gaps.forEach((v) => {
+      ticks.push(t);
+      t += v * scale;
+    });
+    ticks.push(T); // the winner
+    return { T, tS, ticks, rampEnd, slowFrom };
+  }
+
+  function makeValues(count, r, winner) {
+    const values = new Array(count);
+    for (let i = 0; i < count - 1; i += 1) {
+      let v = randInt(r.lo, r.hi);
+      for (let guard = 0; r.size > 2 && guard < 20 && (v === values[i - 1] || (i === count - 2 && v === winner)); guard += 1) {
+        v = randInt(r.lo, r.hi);
+      }
+      values[i] = v;
+    }
+    values[count - 1] = winner;
+    return values;
+  }
+
+  // ---------------------------------------------------------------- audio: decoded cues + a synthesized tick
+  const audio = {
+    ctx: null,
+    out: null,
+    music: null,
+    sfx: null,
+    tick: null,
+    cues: {},
+    live: [],
+    ready: Promise.resolve(),
+
+    init() {
+      if (this.ctx) return;
+      const AC = window.AudioContext || window.webkitAudioContext;
+      if (!AC) return;
+      try {
+        this.ctx = new AC();
+      } catch (e) {
+        return;
+      }
+      const c = this.ctx;
+      this.out = c.createGain();
+      this.out.gain.value = state.muted ? 0 : 1;
+      this.out.connect(c.destination);
+      this.music = c.createGain();
+      this.music.gain.value = 0.9;
+      this.music.connect(this.out);
+      this.sfx = c.createGain();
+      this.sfx.gain.value = 0.5;
+      this.sfx.connect(this.out);
+      this.tick = makeTick(c);
+      const data = window.RAFFLE_AUDIO || {};
+      this.ready = Promise.all(Object.keys(data).map((name) => decode(c, data[name].data).then((buf) => {
+        // if the decoder kept the AAC encoder delay, skip it so the cues stay on the beat
+        const lead = buf.duration - data[name].dur > 0.02 ? 2112 / 48000 : 0;
+        this.cues[name] = { buf, lead, dur: data[name].dur };
+      }).catch(() => {})));
+    },
+
+    // must be called from inside a click / key handler
+    async unlock() {
+      this.init();
+      if (!this.ctx) return false;
+      if (this.ctx.state !== 'running') {
+        try {
+          await Promise.race([this.ctx.resume(), wait(600)]);
+        } catch (e) {
+          return false;
+        }
+      }
+      return this.ctx.state === 'running';
+    },
+
+    keep(src, gain) {
+      const item = { src, gain };
+      this.live.push(item);
+      src.onended = () => {
+        const i = this.live.indexOf(item);
+        if (i >= 0) this.live.splice(i, 1);
+      };
+    },
+
+    play(name, when, { offset = 0, stop = null, fade = 0.15, gain = 1 } = {}) {
+      const cue = this.cues[name];
+      if (!cue) return;
+      const c = this.ctx;
+      const src = c.createBufferSource();
+      const g = c.createGain();
+      src.buffer = cue.buf;
+      g.gain.value = gain;
+      src.connect(g);
+      g.connect(this.music);
+      src.start(when, Math.min(cue.buf.duration - 0.01, cue.lead + offset));
+      if (stop != null) {
+        g.gain.setValueAtTime(gain, Math.max(when, stop - fade));
+        g.gain.linearRampToValueAtTime(0.0001, stop);
+        src.stop(stop + 0.05);
+      }
+      this.keep(src, g);
+    },
+
+    click(when, gain, rate) {
+      const c = this.ctx;
+      const src = c.createBufferSource();
+      const g = c.createGain();
+      src.buffer = this.tick;
+      src.playbackRate.value = rate;
+      g.gain.value = gain;
+      src.connect(g);
+      g.connect(this.sfx);
+      src.start(when);
+      this.keep(src, g);
+    },
+
+    stopAll(fade = 0.12) {
+      if (!this.ctx) return;
+      const now = this.ctx.currentTime;
+      this.live.forEach(({ src, gain }) => {
+        try {
+          gain.gain.cancelScheduledValues(now);
+          gain.gain.setValueAtTime(gain.gain.value, now);
+          gain.gain.linearRampToValueAtTime(0.0001, now + fade);
+          src.stop(now + fade + 0.02);
+        } catch (e) {
+          // already finished
+        }
+      });
+      this.live = [];
+    },
+
+    // schedule the whole draw; returns the audio time the spin starts at
+    playDraw(plan) {
+      this.stopAll(0.08);
+      const t0 = this.ctx.currentTime + 0.1;
+      const slow = plan.T - plan.tS;
+      this.play('groove', t0, { stop: t0 + plan.tS + 0.1, fade: 0.3 });
+      this.play('sting', t0 + plan.tS);
+      const sus = this.cues.suspense;
+      if (sus) this.play('suspense', t0 + plan.tS, { offset: Math.max(0, sus.dur - slow), gain: 0.95 });
+      this.play('reveal', t0 + plan.T);
+      // clicks on the speed-up and the slow-down (the groove carries the flat-out part); the winner gets the big hit
+      const last = plan.ticks.length - 1;
+      plan.ticks.forEach((t, i) => {
+        if (i === last || (i >= plan.rampEnd && i < plan.slowFrom)) return;
+        if (i >= plan.slowFrom) {
+          const x = (i - plan.slowFrom) / Math.max(1, last - plan.slowFrom);
+          this.click(t0 + t, 0.55 + 0.45 * x, 0.9 + 0.35 * x);
+        } else {
+          this.click(t0 + t, 0.3 + 0.25 * (i / Math.max(1, plan.rampEnd)), 1.15);
+        }
+      });
+      return t0;
+    },
+  };
+
+  function makeTick(c) {
+    const sr = c.sampleRate;
+    const n = Math.floor(sr * 0.09);
+    const buf = c.createBuffer(1, n, sr);
+    const d = buf.getChannelData(0);
+    for (let i = 0; i < n; i += 1) {
+      const t = i / sr;
+      d[i] = 0.6 * Math.sin(2 * Math.PI * 1180 * t) * Math.exp(-t / 0.016)
+        + 0.3 * Math.sin(2 * Math.PI * 1960 * t) * Math.exp(-t / 0.009)
+        + 0.35 * (Math.random() * 2 - 1) * Math.exp(-t / 0.002);
+    }
+    return buf;
+  }
+
+  function decode(c, b64) {
+    const bin = atob(b64);
+    const bytes = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i += 1) bytes[i] = bin.charCodeAt(i);
+    return new Promise((resolve, reject) => {
+      const p = c.decodeAudioData(bytes.buffer, resolve, reject);
+      if (p && typeof p.then === 'function') p.then(resolve, reject);
+    });
+  }
+
+  // ---------------------------------------------------------------- the display
+  function sizeFor(r) {
+    const digits = Math.max(String(r.lo).length, String(r.hi).length);
+    const fs = [0.3, 0.3, 0.3, 0.3, 0.245, 0.2, 0.168, 0.145, 0.127, 0.113, 0.1][Math.min(digits, 10)];
+    ui.medallion.style.setProperty('--fs', fs);
+    return digits;
+  }
+
+  function showNumber(value, nepali = true) {
+    const s = String(value);
+    const spans = ui.number.children;
+    if (spans.length !== s.length) {
+      ui.number.textContent = '';
+      for (let i = 0; i < s.length; i += 1) {
+        const d = document.createElement('span');
+        d.className = 'd';
+        ui.number.appendChild(d);
+      }
+    }
+    for (let i = 0; i < s.length; i += 1) {
+      if (spans[i].textContent !== s[i]) spans[i].textContent = s[i];
+    }
+    ui.nepali.textContent = nepali ? toNepali(s) : '';
+  }
+
+  function showIdle() {
+    const r = readRange();
+    showNumber('?'.repeat(r.error ? 5 : sizeFor(r)), false);
+    ui.label.textContent = 'Winning Number';
+    ui.medallion.classList.remove('revealed', 'spinning', 'whirl');
+    progress(0);
+  }
+
+  function setStatus(text, kind = '') {
+    ui.status.textContent = text;
+    ui.status.className = kind ? `status-text ${kind}` : 'status-text';
+  }
+
+  function idleStatus() {
+    const r = readRange();
+    if (r.error) {
+      setStatus(r.error, 'warn');
+      return;
+    }
+    const left = r.size - drawnIn(r).length;
+    if (left <= 0) setStatus('Every ticket in this range has won. Press Reset to start over.', 'warn');
+    else if (state.winners.length) setStatus(`${left} tickets still in the draw. Press Draw for the next winner.`);
+    else setStatus('Press Draw to reveal tonight’s lucky number.');
+  }
+
+  function renderWinners(fresh = false) {
+    ui.winners.textContent = '';
+    state.winners.forEach((n, i) => {
+      const li = document.createElement('li');
+      const rank = document.createElement('span');
+      rank.className = 'rank';
+      rank.textContent = `#${i + 1}`;
+      li.append(rank, document.createTextNode(String(n)));
+      if (fresh && i === state.winners.length - 1) li.className = 'new';
+      ui.winners.appendChild(li);
+    });
+    ui.draw.textContent = state.winners.length ? 'Draw Next Winner' : 'Draw Winner';
+  }
+
+  let arc = null;
+  let blooms = [];
+  let litCount = -1;
+
+  function progress(p) {
+    const x = Math.max(0, Math.min(1, p));
+    if (arc) arc.style.strokeDashoffset = String(1 - x);
+    const n = Math.floor(x * BLOOMS + 1e-6);
+    if (n === litCount) return;
+    litCount = n;
+    blooms.forEach((b, i) => b.classList.toggle('lit', i < n));
+  }
+
+  function slideIn(gap) {
+    if (!ui.number.animate) return;
+    ui.number.animate(
+      [{ transform: 'translateY(-0.22em)', opacity: 0.2 }, { transform: 'translateY(0)', opacity: 1 }],
+      { duration: Math.min(320, gap * 800), easing: 'cubic-bezier(.2,.9,.25,1)' },
+    );
+  }
+
+  function setBusy(busy) {
+    ui.draw.disabled = busy;
+    ui.reset.disabled = busy;
+    [ui.start, ui.end, ui.spin, ui.noRepeat].forEach((input) => {
+      input.disabled = busy;
+    });
+  }
+
+  // ---------------------------------------------------------------- draw -> spin -> reveal
+  async function draw() {
+    if (state.spinning) return;
+    const r = readRange();
+    if (r.error) {
+      setStatus(r.error, 'warn');
+      setHidden(false);
+      return;
+    }
+    const winner = pickWinner(r);
+    if (winner == null) {
+      setStatus('Every ticket in this range has won. Press Reset to start over.', 'warn');
+      return;
+    }
+    state.spinning = true;
+    const unlocking = audio.unlock(); // starts inside the click / key press, as browsers require
+    setBusy(true);
+    setHidden(true);
+    clearConfetti();
+    sizeFor(r);
+    ui.medallion.classList.remove('revealed', 'whirl');
+    ui.label.textContent = 'Drawing…';
+    setStatus('Good luck, everyone! शुभकामना!');
+
+    const plan = makePlan(Number(ui.spin.value));
+    const values = makeValues(plan.ticks.length, r, winner);
+    let withAudio = await unlocking;
+    if (withAudio) await Promise.race([audio.ready, wait(1500)]);
+    withAudio = withAudio && audio.ctx.state === 'running';
+    document.body.dataset.audio = withAudio ? `on:${Object.keys(audio.cues).length}` : 'off';
+    const t0 = withAudio ? audio.playDraw(plan) : 0;
+    run = {
+      plan,
+      values,
+      winner,
+      next: 0,
+      sec: -1,
+      withAudio,
+      t0,
+      p0: performance.now() / 1000 + (withAudio ? 0.1 : 0.05),
+      raf: 0,
+    };
+    litCount = -1;
+    progress(0);
+    ui.countdownValue.textContent = String(Math.ceil(plan.T));
+    ui.countdown.classList.remove('final');
+    ui.medallion.classList.add('spinning');
+    run.raf = requestAnimationFrame(frame);
+  }
+
+  // seconds into the spin, on the clock the music plays on (minus output latency, so the picture matches the speakers)
+  function elapsed() {
+    const wall = performance.now() / 1000 - run.p0;
+    if (!run.withAudio) return wall;
+    const c = audio.ctx;
+    const t = c.currentTime - (c.outputLatency || c.baseLatency || 0) - run.t0;
+    if (wall - t < 0.75) return t;
+    run.withAudio = false; // the audio clock stalled (device unplugged, sleep): finish on the wall clock
+    audio.stopAll(0.1);
+    return wall;
+  }
+
+  function frame() {
+    if (!run) return;
+    const { plan } = run;
+    const t = elapsed();
+    let i = run.next;
+    while (i < plan.ticks.length && plan.ticks[i] <= t) i += 1;
+    if (i !== run.next) {
+      run.next = i;
+      const k = i - 1;
+      showNumber(run.values[k]);
+      if (k < plan.ticks.length - 1) {
+        const gap = plan.ticks[k + 1] - plan.ticks[k];
+        ui.medallion.classList.toggle('whirl', gap < 0.09);
+        if (gap >= 0.06) slideIn(gap);
+      }
+    }
+    if (run.next >= plan.ticks.length) {
+      reveal();
+      return;
+    }
+    const sec = Math.max(1, Math.ceil(plan.T - t));
+    if (sec !== run.sec) {
+      run.sec = sec;
+      ui.countdownValue.textContent = String(sec);
+      ui.countdown.classList.toggle('final', sec <= 3);
+      ui.countdown.classList.remove('beat');
+      void ui.countdown.offsetWidth;
+      ui.countdown.classList.add('beat');
+    }
+    progress(t / plan.T);
+    run.raf = requestAnimationFrame(frame);
+  }
+
+  function reveal() {
+    const { winner } = run;
+    cancelAnimationFrame(run.raf);
+    run = null;
+    state.spinning = false;
+    state.winners.push(winner);
+    save();
+    showNumber(winner);
+    progress(1);
+    ui.medallion.classList.remove('spinning', 'whirl');
+    void ui.medallion.offsetWidth; // restart the reveal animations
+    ui.medallion.classList.add('revealed');
+    ui.label.textContent = `Winner #${state.winners.length}`;
+    setStatus(`Congratulations, ticket ${winner}! शुभ विजया दशमी!`, 'win');
+    renderWinners(true);
+    launchConfetti();
+    setBusy(false);
+  }
+
+  function reset() {
+    if (state.spinning) return;
+    const n = state.winners.length;
+    if (n && !window.confirm(`Clear all ${n} winner${n > 1 ? 's' : ''} and start the raffle over?`)) return;
+    state.winners = [];
+    save();
+    audio.stopAll(0.4);
+    clearConfetti();
+    renderWinners();
+    showIdle();
+    idleStatus();
+  }
+
+  function setMuted(muted) {
+    state.muted = muted;
+    if (audio.out) audio.out.gain.setTargetAtTime(muted ? 0 : 1, audio.ctx.currentTime, 0.03);
+    ui.soundBtn.classList.toggle('off', muted);
+    ui.soundBtn.setAttribute('aria-pressed', String(muted));
+    ui.soundBtn.setAttribute('aria-label', muted ? 'Unmute music' : 'Mute music');
+    ui.soundBtn.title = muted ? 'Unmute (M)' : 'Mute (M)';
+    save();
+  }
+
+  function toggleFullscreen() {
+    const d = document;
+    const el = d.documentElement;
+    let p;
+    if (d.fullscreenElement || d.webkitFullscreenElement) p = (d.exitFullscreen || d.webkitExitFullscreen).call(d);
+    else if (el.requestFullscreen || el.webkitRequestFullscreen) p = (el.requestFullscreen || el.webkitRequestFullscreen).call(el);
+    if (p && p.catch) p.catch(() => {});
+  }
+
+  // ---------------------------------------------------------------- confetti: marigold petals, abir, jamara
+  function clearConfetti() {
+    ui.confetti.textContent = '';
+  }
+
+  function launchConfetti() {
+    const reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    const count = reduce ? 40 : 150;
+    const petals = ['#ff961f', '#ffc22e', '#ffb347', '#ff7a00', '#ffd36c', '#fff4df'];
+    const H = window.innerHeight;
+    const frag = document.createDocumentFragment();
+    for (let i = 0; i < count; i += 1) {
+      const p = document.createElement('span');
+      const kind = i % 7 === 0 ? 'abir' : i % 11 === 0 ? 'strand' : 'petal';
+      p.className = `confetti-piece ${kind}`;
+      p.style.background = kind === 'abir' ? '#e3123f' : kind === 'strand' ? '#e3ea7a' : petals[i % petals.length];
+      const spin = (Math.random() > 0.5 ? 1 : -1) * (360 + Math.random() * 720);
+      if (i % 3 === 0) {
+        p.classList.add('rain');
+        p.style.left = `${Math.random() * 100}%`;
+        p.style.top = '-30px';
+        p.style.setProperty('--drift-x', `${(Math.random() - 0.5) * 240}px`);
+        p.style.setProperty('--fall-y', `${H * (1.05 + Math.random() * 0.15)}px`);
+        p.style.setProperty('--duration', `${reduce ? 2.5 : 4 + Math.random() * 2.5}s`);
+        p.style.setProperty('--delay', `${Math.random() * 1.2}s`);
+      } else {
+        const fromLeft = i % 2 === 0;
+        const burstX = (fromLeft ? 1 : -1) * (100 + Math.random() * 330);
+        p.style.left = fromLeft ? '8%' : '92%';
+        p.style.top = `${H * (0.67 + Math.random() * 0.16)}px`;
+        p.style.setProperty('--burst-x', `${burstX}px`);
+        p.style.setProperty('--burst-y', `${-(H * (0.3 + Math.random() * 0.38))}px`);
+        p.style.setProperty('--drift-x', `${burstX + (fromLeft ? 1 : -1) * Math.random() * 230}px`);
+        p.style.setProperty('--fall-y', `${H * (0.55 + Math.random() * 0.45)}px`);
+        p.style.setProperty('--duration', `${reduce ? 2.2 : 3.6 + Math.random() * 1.8}s`);
+        p.style.setProperty('--delay', `${Math.random() * 0.45}s`);
+      }
+      p.style.setProperty('--spin-early', `${spin * 0.2}deg`);
+      p.style.setProperty('--spin-middle', `${spin * 0.55}deg`);
+      p.style.setProperty('--spin-late', `${spin * 0.8}deg`);
+      p.style.setProperty('--spin', `${spin}deg`);
+      p.style.setProperty('--piece-width', `${8 + Math.random() * 7}px`);
+      p.style.setProperty('--piece-height', `${11 + Math.random() * 8}px`);
+      frag.appendChild(p);
+      setTimeout(() => p.remove(), 8000);
+    }
+    ui.confetti.appendChild(frag);
+  }
+
+  // ---------------------------------------------------------------- scenery
+  function blossom(r, yellow) {
+    const edge = yellow ? '#c98a00' : '#b84a00';
+    return `<circle r="${r}" fill="url(#${yellow ? 'mY' : 'mO'})"/>`
+      + `<circle r="${(r * 0.8).toFixed(1)}" fill="none" stroke="${edge}" stroke-opacity=".55" stroke-width="1.5" stroke-dasharray="2.2 2.4"/>`
+      + `<circle r="${(r * 0.48).toFixed(1)}" fill="none" stroke="${edge}" stroke-opacity=".5" stroke-width="1.3" stroke-dasharray="1.8 2"/>`
+      + `<circle r="${(r * 0.2).toFixed(1)}" fill="${yellow ? '#b97800' : '#a33a00'}" opacity=".75"/>`;
+  }
+
+  function buildMala() {
+    const R = 216;
+    const parts = ['<circle class="arc-track" r="193"/>', '<circle class="arc" r="193" pathLength="1" transform="rotate(-90)"/>'];
+    for (let i = 0; i < BLOOMS; i += 1) {
+      const a = (i / BLOOMS) * Math.PI * 2 - Math.PI / 2; // from 12 o'clock, clockwise
+      const yellow = Math.floor(i / 3) % 2 === 1;
+      parts.push(`<g transform="translate(${(R * Math.cos(a)).toFixed(1)} ${(R * Math.sin(a)).toFixed(1)}) rotate(${(i * 37) % 360})">`
+        + `<g class="bloom" style="--i:${i}"><circle class="glow" r="21" fill="url(#mGlow)"/>${blossom(12, yellow)}</g></g>`);
+    }
+    ui.mala.innerHTML = parts.join('');
+    arc = ui.mala.querySelector('.arc');
+    blooms = Array.from(ui.mala.querySelectorAll('.bloom'));
+  }
+
+  function buildGarland() {
+    const svg = $('garland');
+    const W = Math.max(320, document.documentElement.clientWidth || window.innerWidth);
+    const small = W < 700;
+    const r = small ? 6.5 : 8.5;
+    const step = r * 1.75;
+    const anchors = small ? [0, 0.5, 1] : [0, 0.25, 0.5, 0.75, 1];
+    const sag = small ? 26 : 42;
+    const out = [];
+    for (let s = 0; s < anchors.length - 1; s += 1) {
+      const x0 = anchors[s] * W;
+      const len = (anchors[s + 1] - anchors[s]) * W;
+      const count = Math.max(2, Math.floor(len / step));
+      for (let j = 1; j < count; j += 1) {
+        const u = j / count;
+        const y = 5 + sag * 4 * u * (1 - u);
+        out.push(`<g transform="translate(${(x0 + u * len).toFixed(1)} ${y.toFixed(1)}) rotate(${(j * 47) % 360})">${blossom(r, Math.floor(j / 4) % 2 === 1)}</g>`);
+      }
+    }
+    let bottom = 0;
+    anchors.forEach((a, k) => {
+      const edge = k === 0 || k === anchors.length - 1;
+      const x = Math.min(W - r - 2, Math.max(r + 2, a * W));
+      const drop = edge ? (small ? 6 : 9) : 1;
+      out.push(`<ellipse cx="${x - r * 1.1}" cy="6" rx="${r * 1.3}" ry="${r * 0.55}" fill="url(#leaf)" transform="rotate(-24 ${x} 6)"/>`);
+      out.push(`<ellipse cx="${x + r * 1.1}" cy="6" rx="${r * 1.3}" ry="${r * 0.55}" fill="url(#leaf)" transform="rotate(24 ${x} 6)"/>`);
+      let y = 6;
+      for (let j = 0; j < drop; j += 1) {
+        y = 8 + (j + 0.5) * r * 1.8;
+        out.push(`<g transform="translate(${x.toFixed(1)} ${y.toFixed(1)}) rotate(${(j * 61 + k * 13) % 360})">${blossom(r, (j + k) % 2 === 1)}</g>`);
+      }
+      const ty = y + r;
+      out.push(`<path d="M${x - r * 0.6} ${ty} L${x + r * 0.6} ${ty} L${x} ${ty + r * 2.2}Z" fill="#dc143c"/>`
+        + `<circle cx="${x}" cy="${ty}" r="${r * 0.45}" fill="#ffd36c"/>`);
+      bottom = Math.max(bottom, ty + r * 2.4);
+    });
+    const H = Math.ceil(bottom + 4);
+    svg.setAttribute('viewBox', `0 0 ${W} ${H}`);
+    svg.style.height = `${H}px`;
+    svg.innerHTML = out.join('');
+  }
+
+  const KITES = [
+    { cls: 'k1', x: '5%', y: '19vh', w: 'clamp(48px, 6vw, 98px)', a: '#dc143c', b: '#fff4df', c: '#0b3d91', motif: 'sun', tilt: -12, dur: 6.5, delay: -1, side: -1, tail: true },
+    { cls: 'k2', x: '15%', y: '45vh', w: 'clamp(34px, 4vw, 64px)', a: '#ffc22e', b: '#ff961f', c: '#dc143c', motif: 'dot', tilt: 8, dur: 5.2, delay: -3, side: -1, tail: false },
+    { cls: 'k3', x: '82%', y: '27vh', w: 'clamp(50px, 6.4vw, 104px)', a: '#0b3d91', b: '#dc143c', c: '#fff4df', motif: 'moon', tilt: 10, dur: 7.4, delay: -2, side: 1, tail: true },
+    { cls: 'k4', x: '91%', y: '54vh', w: 'clamp(30px, 3.6vw, 58px)', a: '#9bd14b', b: '#f2e66b', c: '#dc143c', motif: 'band', tilt: -6, dur: 5.8, delay: -4, side: 1, tail: false },
+    { cls: 'far', x: '24%', y: '8vh', w: 'clamp(24px, 2.6vw, 42px)', a: '#ff5fa2', b: '#ffc22e', c: '#7a1fa2', motif: 'dot', tilt: 14, dur: 6.1, delay: -0.5, side: -1, tail: false },
+  ];
+
+  function kiteSVG(k) {
+    const motif = {
+      sun: `<circle cx="50" cy="52" r="13" fill="${k.c}"/><circle cx="50" cy="52" r="6" fill="#ffd36c"/>`,
+      moon: `<path d="M45 39a14 14 0 1 0 14 24a11 11 0 1 1-14-24z" fill="${k.c}"/>`,
+      dot: `<circle cx="50" cy="52" r="10" fill="${k.c}"/>`,
+      band: `<path d="M30 26h40l10 12H20z" fill="${k.c}"/>`,
+    }[k.motif];
+    const tail = k.tail
+      ? `<path d="M50 104q9 14 0 28t0 28 0 28" fill="none" stroke="${k.c}" stroke-width="3" stroke-linecap="round"/>`
+        + `<path d="M44 128l12 4-12 4zM56 156l-12 4 12 4z" fill="${k.a}"/>`
+      : '';
+    return `<svg viewBox="0 0 100 200" xmlns="${SVGNS}">`
+      + `<path d="M50 52Q${50 + k.side * 70} 420 ${50 + k.side * 160} 1500" fill="none" stroke="rgba(255,244,223,.3)" stroke-width="0.9"/>`
+      + `<path d="M50 4l46 48-46 52z" fill="${k.b}"/><path d="M50 4L4 52l46 52z" fill="${k.a}"/>${motif}`
+      + '<path d="M50 4l46 48-46 52L4 52z" fill="none" stroke="rgba(30,10,30,.55)" stroke-width="2"/>'
+      + '<path d="M50 4v100M4 52q46-18 92 0" fill="none" stroke="rgba(40,20,10,.5)" stroke-width="1.6"/>'
+      + `${tail}</svg>`;
+  }
+
+  function buildKites() {
+    $('kites').innerHTML = KITES.map((k) => `<div class="kite ${k.cls}" style="--x:${k.x};--y:${k.y};--w:${k.w};--tilt:${k.tilt}deg;--dur:${k.dur}s;--delay:${k.delay}s">${kiteSVG(k)}</div>`).join('');
+  }
+
+  function buildJamara() {
+    let seed = 2083;
+    const rnd = () => {
+      seed = (seed * 16807) % 2147483647;
+      return seed / 2147483647;
+    };
+    const blades = [];
+    for (let i = 0; i < 26; i += 1) {
+      const bx = 44 + rnd() * 52;
+      const tx = bx + (rnd() - 0.5) * 80;
+      const ty = 14 + rnd() * 100;
+      const cx = (bx + tx) / 2 + (rnd() - 0.5) * 30;
+      blades.push(`<path class="blade" style="--d:${(3 + rnd() * 3).toFixed(1)}s;--dl:${(-rnd() * 4).toFixed(1)}s" d="M${bx.toFixed(1)} 200Q${cx.toFixed(1)} ${(ty + 70).toFixed(1)} ${tx.toFixed(1)} ${ty.toFixed(1)}" fill="none" stroke="url(#jam)" stroke-width="${(2.2 + rnd() * 1.8).toFixed(1)}" stroke-linecap="round"/>`);
+    }
+    const pot = '<path d="M28 196q42-10 84 0l-7 42q-35 10-70 0z" fill="url(#pot)"/>'
+      + '<ellipse cx="70" cy="196" rx="44" ry="7" fill="#8a3a1c"/>'
+      + '<path d="M40 214q30 7 60 0" fill="none" stroke="#ffd36c" stroke-width="2" stroke-dasharray="4 4"/>'
+      + '<circle cx="70" cy="226" r="4" fill="#dc143c"/>';
+    const svg = `<svg viewBox="0 0 140 250" xmlns="${SVGNS}">${blades.join('')}${pot}</svg>`;
+    document.querySelectorAll('.jamara-corner').forEach((el) => {
+      el.innerHTML = svg;
+    });
+  }
+
+  function buildStars() {
+    const n = window.innerWidth < 700 ? 40 : 85;
+    let html = '';
+    for (let i = 0; i < n; i += 1) {
+      html += `<span style="left:${(Math.random() * 100).toFixed(2)}%;top:${(Math.random() * 62).toFixed(2)}%;`
+        + `--s:${(0.6 + Math.random() * 1.8).toFixed(1)}px;--d:${(2 + Math.random() * 3).toFixed(1)}s;--dl:${(-Math.random() * 5).toFixed(1)}s"></span>`;
+    }
+    $('stars').innerHTML = html;
+  }
+
+  // ---------------------------------------------------------------- wiring
+  function onSettingsChange() {
+    save();
+    if (!state.spinning) {
+      showIdle();
+      idleStatus();
+    }
+  }
+
+  function init() {
+    buildStars();
+    buildKites();
+    buildJamara();
+    buildGarland();
+    buildMala();
+    restore();
+    setMuted(state.muted);
+    renderWinners();
+    showIdle();
+    idleStatus();
+
+    ui.draw.addEventListener('click', draw);
+    ui.reset.addEventListener('click', reset);
+    ui.hide.addEventListener('click', () => setHidden(true));
+    ui.settingsBtn.addEventListener('click', () => setHidden(!state.hidden));
+    ui.soundBtn.addEventListener('click', () => setMuted(!state.muted));
+    ui.fullscreenBtn.addEventListener('click', toggleFullscreen);
+    [ui.start, ui.end].forEach((input) => input.addEventListener('input', onSettingsChange));
+    [ui.spin, ui.noRepeat].forEach((input) => input.addEventListener('change', onSettingsChange));
+
+    document.addEventListener('keydown', (e) => {
+      if (e.metaKey || e.ctrlKey || e.altKey || e.repeat) return;
+      const tag = e.target && e.target.tagName;
+      const typing = tag === 'INPUT' || tag === 'SELECT' || tag === 'TEXTAREA';
+      if (e.key === ' ' || e.key === 'Enter' || e.key === 'PageDown') {
+        if (typing || tag === 'BUTTON') return; // let the focused control handle it
+        e.preventDefault();
+        draw();
+        return;
+      }
+      if (typing) return;
+      const key = e.key.toLowerCase();
+      if (key === 's') setHidden(!state.hidden);
+      else if (key === 'f') toggleFullscreen();
+      else if (key === 'm') setMuted(!state.muted);
+    });
+
+    let resizeTimer = 0;
+    window.addEventListener('resize', () => {
+      clearTimeout(resizeTimer);
+      resizeTimer = setTimeout(buildGarland, 150);
+    });
+
+    // decode the music now (the context stays suspended until the first click or key press)
+    audio.init();
+    const firstGesture = () => {
+      audio.unlock();
+    };
+    window.addEventListener('pointerdown', firstGesture, { once: true, capture: true });
+    window.addEventListener('keydown', firstGesture, { once: true, capture: true });
+  }
+
+  init();
+})();
