@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Dashain Night Raffle</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@500;700;900&family=Inter:wght@400;600;700;800&display=swap" rel="stylesheet" />
+    <link rel="stylesheet" href="style.css" />
+  </head>
+  <body>
+    <div class="background-glow glow-one"></div>
+    <div class="background-glow glow-two"></div>
+
+    <main class="app-shell">
+      <header class="topbar">
+        <div class="title-block">
+          <p class="eyebrow">Vijaya Dashami <span aria-hidden="true">•</span> Dashain Night</p>
+          <h1>Lucky Number Draw</h1>
+          <p class="festival-note">Tika <span aria-hidden="true">·</span> Jamara <span aria-hidden="true">·</span> Celebration</p>
+        </div>
+      </header>
+
+      <section class="raffle-panel">
+        <div class="range-controls">
+          <label class="input-group">
+            <span>Start Number</span>
+            <input id="startNumber" type="number" value="80100" min="0" />
+          </label>
+          <label class="input-group">
+            <span>End Number</span>
+            <input id="endNumber" type="number" value="80300" min="0" />
+          </label>
+        </div>
+
+        <div class="display-wrap">
+          <div class="shine"></div>
+          <div class="winner-tag">Winning Number</div>
+          <div id="winnerDisplay" class="winner-number">--</div>
+        </div>
+
+        <div class="controls">
+          <button id="drawButton" class="draw-button">Draw Winner</button>
+          <button id="resetButton" class="secondary-button" type="button">Reset</button>
+        </div>
+
+        <p id="statusText" class="status-text">Press the button to reveal tonight’s lucky number.</p>
+      </section>
+    </main>
+
+    <div id="confettiLayer" aria-hidden="true"></div>
+
+    <script src="script.js"></script>
+  </body>
+</html>
