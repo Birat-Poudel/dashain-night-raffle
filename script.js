@@ -78,13 +78,17 @@
   }
 
   function setHidden(hidden, persist = true) {
+    const changed = state.hidden !== hidden;
     state.hidden = hidden;
     ui.settings.classList.toggle('collapsed', hidden);
     ui.settings.inert = hidden;
     ui.settings.setAttribute('aria-hidden', String(hidden));
     ui.settingsBtn.setAttribute('aria-expanded', String(!hidden));
-    ui.settingsBtn.title = hidden ? 'Show settings (S)' : 'Hide settings (S)';
-    if (persist) save();
+    ui.settingsBtn.title = hidden ? 'Raffle setup (S)' : 'Close setup (S)';
+    if (!persist) return;
+    save();
+    if (changed && hidden && !state.spinning) ui.draw.focus({ preventScroll: true });
+    else if (changed && !hidden) ui.start.focus({ preventScroll: true });
   }
 
   // ---------------------------------------------------------------- range and fair picking
@@ -389,8 +393,8 @@
     }
     const left = r.size - drawnIn(r).length;
     if (left <= 0) setStatus('Every ticket in this range has won. Press Reset to start over.', 'warn');
-    else if (state.winners.length) setStatus(`${left} tickets still in the draw. Press Draw for the next winner.`);
-    else setStatus('Press Draw to reveal tonight’s lucky number.');
+    else if (state.winners.length) setStatus(`${left} tickets still in the draw. Press Start for the next winner.`);
+    else setStatus('Press Start Draw to reveal tonight’s lucky number.');
   }
 
   function renderWinners(fresh = false) {
@@ -404,7 +408,7 @@
       if (fresh && i === state.winners.length - 1) li.className = 'new';
       ui.winners.appendChild(li);
     });
-    ui.draw.textContent = state.winners.length ? 'Draw Next Winner' : 'Draw Winner';
+    ui.draw.textContent = state.winners.length ? 'Start Next Draw' : 'Start Draw';
   }
 
   let arc = null;
@@ -791,10 +795,19 @@
     [ui.start, ui.end].forEach((input) => input.addEventListener('input', onSettingsChange));
     [ui.spin, ui.noRepeat].forEach((input) => input.addEventListener('change', onSettingsChange));
 
+    ui.settings.addEventListener('click', (e) => {
+      if (e.target === ui.settings) setHidden(true); // click outside the card
+    });
+
     document.addEventListener('keydown', (e) => {
       if (e.metaKey || e.ctrlKey || e.altKey || e.repeat) return;
       const tag = e.target && e.target.tagName;
       const typing = tag === 'INPUT' || tag === 'SELECT' || tag === 'TEXTAREA';
+      if (!state.hidden && (e.key === 'Escape' || (e.key === 'Enter' && tag === 'INPUT'))) {
+        e.preventDefault();
+        setHidden(true);
+        return;
+      }
       if (e.key === ' ' || e.key === 'Enter' || e.key === 'PageDown') {
         if (typing || tag === 'BUTTON') return; // let the focused control handle it
         e.preventDefault();

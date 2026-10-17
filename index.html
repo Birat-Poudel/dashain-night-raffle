@@ -72,40 +72,6 @@
         <div class="dhaka" aria-hidden="true"></div>
       </header>
 
-      <section class="settings" id="settings" aria-label="Raffle settings">
-        <div class="settings-inner">
-          <div class="settings-card">
-            <div class="settings-grid">
-              <label class="field">
-                <span>Start number</span>
-                <input id="startNumber" type="number" inputmode="numeric" step="1" value="80100" />
-              </label>
-              <label class="field">
-                <span>End number</span>
-                <input id="endNumber" type="number" inputmode="numeric" step="1" value="80300" />
-              </label>
-              <label class="field">
-                <span>Spin time</span>
-                <select id="spinTime">
-                  <option value="6">6 seconds</option>
-                  <option value="10" selected>10 seconds</option>
-                  <option value="15">15 seconds</option>
-                  <option value="20">20 seconds</option>
-                </select>
-              </label>
-              <label class="field check">
-                <input id="noRepeat" type="checkbox" checked />
-                <span>Never draw the same ticket twice</span>
-              </label>
-            </div>
-            <div class="settings-foot">
-              <p class="hint">Space or Enter: draw · S: settings · F: full screen · M: mute</p>
-              <button id="hideSettings" class="hide-button" type="button">Hide settings</button>
-            </div>
-          </div>
-        </div>
-      </section>
-
       <section class="medallion-wrap" aria-label="Draw">
         <div class="medallion" id="medallion">
           <svg class="mala" id="mala" viewBox="-240 -240 480 480" aria-hidden="true"></svg>
@@ -119,12 +85,46 @@
       </section>
 
       <div class="controls">
-        <button id="drawButton" class="draw-button" type="button">Draw Winner</button>
+        <button id="drawButton" class="draw-button" type="button">Start Draw</button>
         <button id="resetButton" class="secondary-button" type="button">Reset</button>
       </div>
       <p id="statusText" class="status-text" role="status" aria-live="polite"></p>
       <ol class="winners" id="winnersList" aria-label="Winners so far"></ol>
     </main>
+
+    <!-- raffle setup: a card over the page, so it never pushes the draw off screen -->
+    <section class="settings" id="settings" role="dialog" aria-modal="true" aria-labelledby="setupTitle">
+      <div class="settings-card">
+        <h2 id="setupTitle">Raffle setup</h2>
+        <div class="settings-grid">
+          <label class="field">
+            <span>First ticket</span>
+            <input id="startNumber" type="number" inputmode="numeric" step="1" value="80100" />
+          </label>
+          <label class="field">
+            <span>Last ticket</span>
+            <input id="endNumber" type="number" inputmode="numeric" step="1" value="80300" />
+          </label>
+          <label class="field">
+            <span>Spin time</span>
+            <select id="spinTime">
+              <option value="6">6 seconds</option>
+              <option value="10" selected>10 seconds</option>
+              <option value="15">15 seconds</option>
+              <option value="20">20 seconds</option>
+            </select>
+          </label>
+          <label class="field check">
+            <input id="noRepeat" type="checkbox" checked />
+            <span>Never draw the same ticket twice</span>
+          </label>
+        </div>
+        <div class="settings-foot">
+          <p class="hint">Space or Enter: start · S: setup · F: full screen · M: mute</p>
+          <button id="hideSettings" class="hide-button" type="button">Done</button>
+        </div>
+      </div>
+    </section>
 
     <div class="tools">
       <button id="soundButton" class="tool" type="button" aria-label="Mute music" aria-pressed="false" title="Mute (M)">

@@ -15,8 +15,15 @@
   --cream-dim: rgba(255, 244, 223, 0.78);
   --panel: rgba(22, 9, 34, 0.74);
   --line: rgba(255, 211, 108, 0.36);
-  --med: min(48vh, 80vw, 600px);
+  /* the plate fills whatever height the title, buttons and winners leave, so Start is always on screen */
+  --med: max(200px, min(calc((100vh - 430px) / 1.2), 80vw, 600px));
   --fs: 0.2;
+}
+
+@supports (height: 100dvh) {
+  :root {
+    --med: max(200px, min(calc((100dvh - 430px) / 1.2), 80vw, 600px));
+  }
 }
 
 * {
@@ -202,11 +209,8 @@ h1 .t1 {
   display: block;
   font-size: clamp(2rem, min(5.6vw, 7.4vh), 4.2rem);
   letter-spacing: 0.03em;
-  background: linear-gradient(180deg, #fff7dc 0%, #ffd36c 55%, #f0a531 100%);
-  -webkit-background-clip: text;
-  background-clip: text;
-  color: transparent;
-  filter: drop-shadow(0 4px 18px rgba(255, 160, 40, 0.3));
+  color: #ffd77a;
+  text-shadow: 0 0.04em 0 rgba(150, 80, 10, 0.95), 0 0 0.45em rgba(255, 170, 50, 0.4);
 }
 
 h1 .t2 {
@@ -232,37 +236,47 @@ h1 .t2 {
   box-shadow: 0 2px 10px rgba(0, 0, 0, 0.35);
 }
 
-/* ------------------------------------------------------------------ settings (hideable) */
+/* ------------------------------------------------------------------ raffle setup (a card over the page; hideable) */
 .settings {
+  position: fixed;
+  inset: 0;
+  z-index: 8;
   display: grid;
-  grid-template-rows: 1fr;
-  width: min(100%, 780px);
-  margin: 1.1rem auto 0.2rem;
+  place-items: center;
+  padding: 16px;
+  background: rgba(5, 3, 15, 0.6);
   opacity: 1;
-  transition: grid-template-rows 0.45s ease, opacity 0.35s ease, margin 0.45s ease, visibility 0s linear 0s;
+  transition: opacity 0.3s ease, visibility 0s linear 0s;
 }
 
 .settings.collapsed {
-  grid-template-rows: 0fr;
-  margin: 0 auto;
   opacity: 0;
   visibility: hidden;
-  transition: grid-template-rows 0.45s ease, opacity 0.3s ease, margin 0.45s ease, visibility 0s linear 0.45s;
-}
-
-.settings-inner {
-  min-height: 0;
-  overflow: hidden;
+  transition: opacity 0.3s ease, visibility 0s linear 0.3s;
 }
 
 .settings-card {
-  padding: 1rem 1.15rem 0.9rem;
+  width: min(100%, 640px);
+  padding: 1.3rem 1.4rem 1.1rem;
   border: 1px solid var(--line);
-  border-radius: 20px;
-  background: var(--panel);
-  -webkit-backdrop-filter: blur(10px);
-  backdrop-filter: blur(10px);
-  box-shadow: 0 18px 40px rgba(0, 0, 0, 0.35);
+  border-radius: 22px;
+  background: linear-gradient(180deg, rgba(48, 14, 44, 0.97), rgba(22, 8, 32, 0.97));
+  box-shadow: 0 30px 80px rgba(0, 0, 0, 0.55);
+  text-align: left;
+  transition: transform 0.3s ease;
+}
+
+.settings.collapsed .settings-card {
+  transform: translateY(18px) scale(0.98);
+}
+
+.settings-card h2 {
+  margin: 0 0 1rem;
+  font-family: "Cinzel", serif;
+  font-size: 1.35rem;
+  font-weight: 900;
+  color: var(--gold);
+  letter-spacing: 0.04em;
 }
 
 .settings-grid {
@@ -342,12 +356,7 @@ h1 .t2 {
 
 /* ------------------------------------------------------------------ the brass thali, its marigold mala and the countdown */
 .medallion-wrap {
-  margin: clamp(30px, 5.4vh, 60px) 0 clamp(26px, 4.6vh, 50px);
-}
-
-/* while the host is typing, a smaller plate keeps the Draw button on screen */
-.settings:not(.collapsed) + .medallion-wrap {
-  --med: min(34vh, 80vw, 440px);
+  margin: calc(var(--med) * 0.1 + 14px) 0 calc(var(--med) * 0.1 + 12px);
 }
 
 .medallion {
@@ -487,22 +496,18 @@ h1 .t2 {
   font-weight: 900;
   font-size: calc(var(--med) * var(--fs));
   line-height: 1.08;
-  filter: drop-shadow(0 0 0.18em rgba(255, 190, 70, 0.45)) drop-shadow(0 0.06em 0.12em rgba(0, 0, 0, 0.55));
-  will-change: transform;
+  color: #ffd77a;
+  text-shadow: 0 0.035em 0 rgba(150, 80, 10, 0.95), 0 0 0.3em rgba(255, 180, 60, 0.5);
 }
 
 .number .d {
   display: inline-block;
   width: 0.72em;
   text-align: center;
-  background: linear-gradient(180deg, #fff6d0 10%, #ffd36c 55%, #f0a531 95%);
-  -webkit-background-clip: text;
-  background-clip: text;
-  color: transparent;
 }
 
 .medallion.whirl .number {
-  filter: blur(1.4px) drop-shadow(0 0 0.18em rgba(255, 190, 70, 0.5));
+  filter: blur(1.3px);
 }
 
 .medallion.revealed .number {
@@ -621,16 +626,36 @@ button:disabled {
 }
 
 .draw-button {
-  padding: 1.05rem 2.6rem;
-  font-size: clamp(0.95rem, 1.5vw, 1.12rem);
+  display: inline-flex;
+  align-items: center;
+  gap: 0.6em;
+  padding: 1.1rem 2.9rem;
+  font-size: clamp(1.05rem, 1.7vw, 1.3rem);
   color: #4a0f12;
   background: linear-gradient(135deg, #ffeaa8 0%, #ffc142 45%, #f27d1c 100%);
   box-shadow: 0 14px 34px rgba(242, 125, 28, 0.38), inset 0 1px 0 rgba(255, 255, 255, 0.6);
+  animation: call 2.4s ease-in-out infinite;
+}
+
+.draw-button::before {
+  content: "";
+  width: 0;
+  height: 0;
+  border-style: solid;
+  border-width: 0.45em 0 0.45em 0.72em;
+  border-color: transparent transparent transparent currentColor;
+}
+
+/* a soft pulse so the Start button is the first thing you see */
+@keyframes call {
+  0%, 100% { box-shadow: 0 14px 34px rgba(242, 125, 28, 0.38), 0 0 0 0 rgba(255, 193, 66, 0.5), inset 0 1px 0 rgba(255, 255, 255, 0.6); }
+  50% { box-shadow: 0 14px 34px rgba(242, 125, 28, 0.38), 0 0 0 12px rgba(255, 193, 66, 0), inset 0 1px 0 rgba(255, 255, 255, 0.6); }
 }
 
 .draw-button:disabled {
   opacity: 0.5;
   filter: saturate(0.6);
+  animation: none;
 }
 
 .secondary-button {
@@ -810,7 +835,7 @@ button:disabled {
 /* ------------------------------------------------------------------ smaller screens */
 @media (max-width: 700px) {
   :root {
-    --med: min(44vh, 84vw, 420px);
+    --med: max(190px, min(calc((100vh - 400px) / 1.2), 84vw, 420px));
   }
 
   .settings-grid {
@@ -847,12 +872,8 @@ button:disabled {
 }
 
 @media (max-height: 720px) and (min-width: 701px) {
-  :root {
-    --med: min(46vh, 80vw, 600px);
-  }
-
   .stage {
-    padding-top: 64px;
+    padding-top: 60px;
   }
 }
 
